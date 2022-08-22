@@ -20,12 +20,14 @@ internal class Program
         {
             WriteError("配置文件不存在，已经创建默认配置，按任意键退出");
             pause();
+            return;
         }
 
         if (args.Length == 0)
         {
             WriteError("未指定回放文件");
             pause();
+            return;
         }
 
         string file = string.Empty;
@@ -81,36 +83,75 @@ internal class Program
         WriteLine($"读取分数: {score}");
         WriteLine();
 
-        var outFileName = Path.GetRandomFileName();
+        string outFileName = Path.GetRandomFileName();
 
         try
         {
-            var danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
+            string danserCommand = $"-r=\"{file}\" -record -out={outFileName} {Config.DanserArgs}";
+            string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
 
             WriteLine($"运行danser： {danserCommand}");
             WriteLine();
+
             var p = Process.Start(new ProcessStartInfo
             {
-                FileName = Config.DanserPath,
+                FileName = danserPath,
                 Arguments = danserCommand,
             });
             p.WaitForExit();
-            outFileName = Path.Combine(Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), ""), "videos", outFileName + ".mp4");
-            
-            if (!File.Exists(outFileName))
+
+            string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
+            string videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
+
+            danserCommand = $"-r=\"{file}\" -ss={score.Beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
+            WriteLine($"运行danser： {danserCommand}");
+            WriteLine();
+            p = Process.Start(new ProcessStartInfo
+            {
+                FileName = danserPath,
+                Arguments = danserCommand,
+            });
+            p.WaitForExit();
+
+            string coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
+
+            if (!File.Exists(videoPath))
             {
                 WriteError("录制视频文件不存在");
                 pause();
                 return;
             }
+            if (!File.Exists(coverPath))
+            {
+                WriteError("截图文件不存在");
+                WriteLine();
+                coverPath = string.Empty;
+            }
 
-            string desc = $@"
-//Player info:
+            var stats = user.Statistics;
+            var playTime = TimeSpan.FromSeconds(stats.PlayTime ?? 0);
+            string playTimeText = $"{playTime.Days:N0}d {playTime.Hours}h {playTime.Minutes}m";
+            int prevNameCount = user.PreviousUsernames.Length;
+            string previousUsernames = prevNameCount > 0 ? "曾用名: " : string.Empty;
+            for (int i = 0; i < prevNameCount; i++)
+            {
+                previousUsernames += user.PreviousUsernames[i] + (i == prevNameCount - 1 ? Environment.NewLine : ", ");
+            }
+
+            string desc = $@"//Player info:
 Player: {user}
-Profile: http://osu.ppy.sh/users/{user.Id}
+Profile: https://osu.ppy.sh/users/{user.Id}
+{previousUsernames}游戏时间: {playTimeText}
+准确率: {stats.Accuracy:F2}%
+Ranked 谱面总分: {stats.RankedScore:N0}
+总分: {stats.TotalScore:N0}
+游戏次数: {stats.PlayCount:N0}
+Total Hits: {stats.TotalHits:N0}
+pc/tth: {stats.TotalHits / (double)stats.PlayCount:F2}
+最大连击: {stats.MaxCombo:N0}
+回放被观看次数: {stats.ReplaysWatched}
 
-// Beatmap info:
-";
+// Beatmap info: ";
             if (beatmap == null)
             {
                 desc += "Unknown beatmap";
@@ -118,27 +159,35 @@ Profile: http://osu.ppy.sh/users/{user.Id}
             else
             {
                 var difficulty = client.GetBeatmapAttributes(beatmap.OnlineID, "osu", (int)score.EnabledMods);
-                double star = difficulty?.StarRating ?? score.Beatmap.StarRating;
+                double star = difficulty?.StarRating ?? beatmap.StarRating;
 
-                desc += @$"{beatmap}
-Beatmap link: http://osu.ppy.sh/b/{beatmap.OnlineID}
+                desc += $@"{beatmap}
+Beatmap link: https://osu.ppy.sh/b/{beatmap.OnlineID}
 Star: {star:##.##}
 AR: {beatmap.ApproachRate} CS: {beatmap.CircleSize} OD: {beatmap.OverallDifficulty} HP: {beatmap.DrainRate}";
             }
 
             WriteLine();
             WriteLine("运行biliup");
-            WriteLine();
+            WriteLine($@"
+投稿信息：
+文件: {videoPath}
+标题: {score}
+简介: {desc}
+Tag: {Config.VideoTags}
+");
             p = Process.Start(new ProcessStartInfo
             {
-                FileName = Config.BiliupPath,
-                ArgumentList = { "upload" , "--tid=136" , "--title", score.ToString(), "--tag", Config.VideoTags, "--desc", desc, outFileName },
+                FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.BiliupPath),
+                ArgumentList = { "upload" , "--tid=136" , "--title", score.ToString(), "--tag", Config.VideoTags, "--desc", desc, "--cover", coverPath, videoPath },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                 StandardErrorEncoding = Encoding.UTF8,
                 StandardOutputEncoding = Encoding.UTF8,
             });
             p.WaitForExit();
+
             WriteLine(p.StandardOutput.ReadToEnd());
             WriteError(p.StandardError.ReadToEnd());
             pause();
