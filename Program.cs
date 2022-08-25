@@ -25,10 +25,11 @@ internal class Program
             return;
         }
 
+        File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
         string file = string.Empty;
         if (args.Length == 0)
         {
-            Write("输入rep路径：");
+            Write("输入回放文件路径：");
             file = ReadLine()?.Trim('"');
             WriteLine();
         }
@@ -60,6 +61,7 @@ internal class Program
         client = new ApiV2Client();
         var score = Score.ReadFromReplay(file);
         var beatmap = client.GetBeatmap(score.BeatmapChecksum);
+        PlayModes mode = score.PlayMode;
 
         if (beatmap == null)
         {
@@ -82,7 +84,6 @@ internal class Program
                 beatmap.DrainRate /= 2;
             }
 
-            PlayModes mode = score.PlayMode;
             MapDifficultyRange difficultyRange;
 
             if (ModUtils.CheckActive(score.EnabledMods, Mods.DoubleTime))
@@ -116,51 +117,67 @@ internal class Program
         WriteLine();
         WriteLine($"读取分数: {score}");
         WriteLine();
-        var user = client.GetUser(score.PlayerName);
+        var apiMode = toApiMode(mode);
+        var user = client.GetUser(score.PlayerName , apiMode);
 
         string outFileName = Path.GetRandomFileName();
 
         try
         {
-            string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
-            string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
+            string videoPath = string.Empty;
+            string coverPath = string.Empty;
+            Process p;
 
-            WriteLine($"运行danser： {danserCommand}");
-            WriteLine();
-
-            var p = Process.Start(new ProcessStartInfo
+            if (mode == PlayModes.Osu)
             {
-                FileName = danserPath,
-                Arguments = danserCommand,
-            });
-            p.WaitForExit();
+                string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
+                string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
 
-            string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
-            string videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
-
-            danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
-            WriteLine($"运行danser： {danserCommand}");
-            WriteLine();
-            p = Process.Start(new ProcessStartInfo
-            {
-                FileName = danserPath,
-                Arguments = danserCommand,
-            });
-            p.WaitForExit();
-
-            string coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
-
-            if (!File.Exists(videoPath))
-            {
-                WriteError("录制视频文件不存在");
-                pause();
-                return;
-            }
-            if (!File.Exists(coverPath))
-            {
-                WriteError("截图文件不存在");
+                WriteLine($"运行danser： {danserCommand}");
                 WriteLine();
-                coverPath = string.Empty;
+
+                p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = danserPath,
+                    Arguments = danserCommand,
+                });
+                p.WaitForExit();
+
+                string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
+                videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
+
+                danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
+                WriteLine($"运行danser： {danserCommand}");
+                WriteLine();
+                p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = danserPath,
+                    Arguments = danserCommand,
+                });
+                p.WaitForExit();
+
+                coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
+
+                if (!File.Exists(videoPath))
+                {
+                    WriteError("录制视频文件不存在");
+                    pause();
+                    return;
+                }
+                if (!File.Exists(coverPath))
+                {
+                    WriteError("截图文件不存在");
+                    WriteLine();
+                    coverPath = string.Empty;
+                }
+            }
+            else
+            {
+                WriteError($"danser不支持回放文件的模式 {mode}，请手动上传");
+                Write("输入视频文件路径：");
+                videoPath = ReadLine()?.Trim('"');
+                Write("输入视频封面路径（留空为不传）：");
+                coverPath = ReadLine()?.Trim('"');
             }
 
             var stats = user.Statistics;
@@ -193,13 +210,14 @@ Profile: https://osu.ppy.sh/users/{user.Id}
 游戏次数: {stats.PlayCount:N0}
 
 // Beatmap info: ";
+
             if (beatmap == null)
             {
                 desc += "Unknown beatmap";
             }
             else
             {
-                var difficulty = client.GetBeatmapAttributes(beatmap.OnlineID, "osu", (int)score.EnabledMods);
+                var difficulty = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
                 double star = difficulty?.StarRating ?? beatmap.StarRating;
 
                 desc += $@"{beatmap}
@@ -217,6 +235,7 @@ AR: {beatmap.ApproachRate} CS: {beatmap.CircleSize} OD: {beatmap.OverallDifficul
 简介: {desc}
 Tag: {Config.VideoTags}
 ");
+
             p = Process.Start(new ProcessStartInfo
             {
                 FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.BiliupPath),
@@ -291,13 +310,25 @@ Tag: {Config.VideoTags}
         do
         {
             strMem = strMem[..^1];
-        } while (Encoding.UTF8.GetByteCount(strMem.Span) + 1 > 128);
+        } while (Encoding.UTF8.GetByteCount(strMem.Span) + 1 > length);
 
         return string.Create(strMem.Length + 1, strMem, (span, mem) =>
         {
             mem.Span.CopyTo(span);
             span[^1] = '…';
         });
+    }
+
+    private static string toApiMode(PlayModes mode)
+    {
+        return mode switch
+        {
+            PlayModes.Osu => "osu",
+            PlayModes.Taiko => "taiko",
+            PlayModes.CatchTheBeat => "fruits",
+            PlayModes.OsuMania => "mania",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode))
+        };
     }
 }
 
