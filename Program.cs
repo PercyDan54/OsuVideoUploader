@@ -13,31 +13,34 @@ internal class Program
     public const string CONFIG_FILE = "config.json";
 
     private static ApiV2Client client;
+    private static Dictionary<PlayModes, MapDifficultyRange> approachRateRanges = new();
+    private static Dictionary<PlayModes, MapDifficultyRange> overallDifficultyRanges = new();
 
     public static void Main(string[] args)
     {
         if (!InitConfig())
         {
-            WriteError("配置文件不存在，已经创建默认配置，按任意键退出");
-            pause();
-            return;
-        }
-
-        if (args.Length == 0)
-        {
-            WriteError("未指定回放文件");
+            WriteError("配置文件不存在，已经创建默认配置");
             pause();
             return;
         }
 
         string file = string.Empty;
-
-        foreach (var str in args)
+        if (args.Length == 0)
         {
-            file += " " + str;
+            Write("输入rep路径：");
+            file = ReadLine()?.Trim('"');
+            WriteLine();
         }
+        else
+        {
+            foreach (var str in args)
+            {
+                file += " " + str;
+            }
 
-        file = file.TrimStart();
+            file = file.TrimStart();
+        }
 
         WriteLine($"回放文件： {file}");
         WriteLine();
@@ -49,12 +52,15 @@ internal class Program
             return;
         }
 
-        WriteLine("正在获取 Access Token");
+        approachRateRanges.Add(PlayModes.Osu, new MapDifficultyRange(1800, 1200, 450));
+        overallDifficultyRanges.Add(PlayModes.Osu, new MapDifficultyRange(80, 50, 20));
+        overallDifficultyRanges.Add(PlayModes.Taiko, new MapDifficultyRange(50, 35, 20));
+
+        WriteLine("正在获取 osu! API Access Token");
         client = new ApiV2Client();
         var score = Score.ReadFromReplay(file);
         var beatmap = client.GetBeatmap(score.BeatmapChecksum);
 
-        score.Beatmap = beatmap;
         if (beatmap == null)
         {
             WriteError("获取谱面信息失败");
@@ -63,31 +69,60 @@ internal class Program
         {
             if (ModUtils.CheckActive(score.EnabledMods, Mods.HardRock))
             {
-                score.Beatmap.CircleSize = Math.Min(score.Beatmap.CircleSize * 1.3f, 10);
-                score.Beatmap.ApproachRate = Math.Min(score.Beatmap.ApproachRate * 1.4f, 10);
-                score.Beatmap.OverallDifficulty = Math.Min(score.Beatmap.OverallDifficulty * 1.4f, 10);
-                score.Beatmap.DrainRate = Math.Min(score.Beatmap.DrainRate * 1.4f, 10);
-
+                beatmap.CircleSize = Math.Min(beatmap.CircleSize * 1.3f, 10);
+                beatmap.ApproachRate = Math.Min(beatmap.ApproachRate * 1.4f, 10);
+                beatmap.OverallDifficulty = Math.Min(beatmap.OverallDifficulty * 1.4f, 10);
+                beatmap.DrainRate = Math.Min(beatmap.DrainRate * 1.4f, 10);
             }
             if (ModUtils.CheckActive(score.EnabledMods, Mods.Easy))
             {
-                score.Beatmap.CircleSize /= 2;
-                score.Beatmap.ApproachRate /= 2;
-                score.Beatmap.OverallDifficulty /= 2;
-                score.Beatmap.DrainRate /= 2;
+                beatmap.CircleSize /= 2;
+                beatmap.ApproachRate /= 2;
+                beatmap.OverallDifficulty /= 2;
+                beatmap.DrainRate /= 2;
             }
+
+            PlayModes mode = score.PlayMode;
+            MapDifficultyRange difficultyRange;
+
+            if (ModUtils.CheckActive(score.EnabledMods, Mods.DoubleTime))
+            {
+                if (approachRateRanges.TryGetValue(mode, out difficultyRange))
+                {
+                    beatmap.ApproachRate = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.ApproachRate) / 0.75f), 2);
+                }
+
+                if (overallDifficultyRanges.TryGetValue(mode, out difficultyRange))
+                {
+                    beatmap.OverallDifficulty = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.OverallDifficulty) / 0.75f), 2);
+                }
+            }
+            if (ModUtils.CheckActive(score.EnabledMods, Mods.HalfTime))
+            {
+                if (approachRateRanges.TryGetValue(mode, out difficultyRange))
+                {
+                    beatmap.ApproachRate = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.ApproachRate) / 0.75f), 2);
+                }
+
+                if (overallDifficultyRanges.TryGetValue(mode, out difficultyRange))
+                {
+                    beatmap.OverallDifficulty = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.OverallDifficulty) / 0.75f), 2);
+                }
+            }
+
+            score.Beatmap = beatmap;
         }
 
-        var user = client.GetUser(score.PlayerName);
         WriteLine();
         WriteLine($"读取分数: {score}");
         WriteLine();
+        var user = client.GetUser(score.PlayerName);
 
         string outFileName = Path.GetRandomFileName();
 
         try
         {
-            string danserCommand = $"-r=\"{file}\" -record -out={outFileName} {Config.DanserArgs}";
+            string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
             string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
 
             WriteLine($"运行danser： {danserCommand}");
@@ -103,7 +138,7 @@ internal class Program
             string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
             string videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
 
-            danserCommand = $"-r=\"{file}\" -ss={score.Beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
+            danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
             WriteLine($"运行danser： {danserCommand}");
             WriteLine();
             p = Process.Start(new ProcessStartInfo
@@ -138,18 +173,24 @@ internal class Program
                 previousUsernames += user.PreviousUsernames[i] + (i == prevNameCount - 1 ? Environment.NewLine : ", ");
             }
 
+            string title = score.ToStringDetails();
+
+            if (title.Length > 80)
+            {
+                if (beatmap != null)
+                {
+                    string diffNameMods = $"[{beatmap.DifficultyName}] {ModUtils.Format(score.EnabledMods)}";
+                    string truncateTitle = truncate(beatmap.BeatmapSet.TitleUnicode, 79 - diffNameMods.Length);
+                    title = $"{truncateTitle} {diffNameMods}";
+                }
+            }
+
             string desc = $@"//Player info:
 Player: {user}
 Profile: https://osu.ppy.sh/users/{user.Id}
 {previousUsernames}游戏时间: {playTimeText}
 准确率: {stats.Accuracy:F2}%
-Ranked 谱面总分: {stats.RankedScore:N0}
-总分: {stats.TotalScore:N0}
 游戏次数: {stats.PlayCount:N0}
-Total Hits: {stats.TotalHits:N0}
-pc/tth: {stats.TotalHits / (double)stats.PlayCount:F2}
-最大连击: {stats.MaxCombo:N0}
-回放被观看次数: {stats.ReplaysWatched}
 
 // Beatmap info: ";
             if (beatmap == null)
@@ -172,14 +213,14 @@ AR: {beatmap.ApproachRate} CS: {beatmap.CircleSize} OD: {beatmap.OverallDifficul
             WriteLine($@"
 投稿信息：
 文件: {videoPath}
-标题: {score}
+标题: {title}
 简介: {desc}
 Tag: {Config.VideoTags}
 ");
             p = Process.Start(new ProcessStartInfo
             {
                 FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.BiliupPath),
-                ArgumentList = { "upload" , "--tid=136" , "--title", score.ToString(), "--tag", Config.VideoTags, "--desc", desc, "--cover", coverPath, videoPath },
+                ArgumentList = { "upload" , "--tid=136" , "--title", title, "--tag", Config.VideoTags, "--desc", desc, "--cover", coverPath, videoPath },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
@@ -238,6 +279,25 @@ Tag: {Config.VideoTags}
             Config = new Config();
             File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
         }
+    }
+
+    private static string truncate(string str, int length)
+    {
+        if (str.Length <= length)
+            return str;
+
+        ReadOnlyMemory<char> strMem = str.AsMemory();
+
+        do
+        {
+            strMem = strMem[..^1];
+        } while (Encoding.UTF8.GetByteCount(strMem.Span) + 1 > 128);
+
+        return string.Create(strMem.Length + 1, strMem, (span, mem) =>
+        {
+            mem.Span.CopyTo(span);
+            span[^1] = '…';
+        });
     }
 }
 

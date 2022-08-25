@@ -4,7 +4,7 @@
     {
         private delegate void formatAddString(string shortString, string longString = null);
 
-        public static string Format(Mods mods, bool shortForm, bool showEmpty, bool addSpace)
+        public static string Format(Mods mods, bool shortForm = true, bool showEmpty = false, bool addSpace = false)
         {
             if (mods == Mods.None)
                 return showEmpty ? "None" : string.Empty;
@@ -13,7 +13,7 @@
 
             formatAddString add = delegate (string shortString, string longString)
             {
-                r += (shortForm ? shortString : longString ?? shortString) + ',';
+                r += (shortForm ? shortString : longString ?? shortString);
             };
 
             if (CheckActive(Mods.Cinema, mods))
@@ -75,7 +75,6 @@
             if (CheckActive(Mods.Random, mods))
                 add("RD", "Random");
 
-            r = r.Trim(',');
             if (r.Length == 0)
                 return "";
 

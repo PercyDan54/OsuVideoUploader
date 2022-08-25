@@ -155,12 +155,11 @@ namespace OsuVideoUploader
         public string BeatmapChecksum;
         public PlayModes PlayMode;
 
-        public override string ToString()
-        {
-            string str = $"{Beatmap} {Accuracy:P} {Rank}";
-            string mods = ModUtils.Format(EnabledMods, true, true, false);
+        public override string ToString() => $"{Beatmap} {ModUtils.Format(EnabledMods, showEmpty: true)} {Accuracy:P}";
 
-            str += $" +{mods}";
+        public string ToStringDetails()
+        {
+            string str = ToString();
 
             if (CountMiss == 1)
             {
@@ -174,6 +173,7 @@ namespace OsuVideoUploader
             {
                 str += " FC";
             }
+
             return str;
         }
 
