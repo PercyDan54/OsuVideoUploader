@@ -16,6 +16,8 @@
                 r += (shortForm ? shortString : longString ?? shortString);
             };
 
+            if (CheckActive(Mods.ScoreV2, mods))
+                add("V2", "ScoreV2");
             if (CheckActive(Mods.Cinema, mods))
                 add("Cinema");
             else if (CheckActive(Mods.Autoplay, mods))

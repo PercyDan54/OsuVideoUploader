@@ -157,14 +157,14 @@ namespace OsuVideoUploader
 
         public override string ToString()
         {
-            string str = $"{Beatmap} {ModUtils.Format(EnabledMods)} ";
+            string str = $"{Beatmap} {ModUtils.Format(EnabledMods)}";
             if (Accuracy < 1)
             {
-                str += $"{Accuracy:P2} {Rank}";
+                str += $" {Accuracy:P2} {Rank}";
             }
             else
             {
-                str += "SS";
+                str += " SS";
             }
             return str;
         }

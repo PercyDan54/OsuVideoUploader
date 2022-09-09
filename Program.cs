@@ -244,10 +244,10 @@ Profile: https://osu.ppy.sh/u/{user.Id}
             }
             else
             {
-                desc += "Unknown player";
+                desc += $"Unknown player: {score.PlayerName}";
             }
-
             desc += "// Beatmap info:\n";
+
             APIBeatmapDifficultyAttributes difficultyAttributes = null;
             if (beatmap == null)
             {
@@ -260,7 +260,7 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 desc += $@"{beatmap}
 Link: https://osu.ppy.sh/b/{beatmap.OnlineID}{(beatmap.RulesetID == (int)mode ? string.Empty : $"?mode={apiMode}")}
-                Star: {star:##.##}
+Star: {star:##.##}
 BPM: {beatmap.BPM:##.##}
 AR: {beatmap.ApproachRate:##.##} CS: {beatmap.CircleSize:##.##} OD: {beatmap.OverallDifficulty:##.##} HP: {beatmap.DrainRate:##.##}
 ";
