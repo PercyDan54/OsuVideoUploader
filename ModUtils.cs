@@ -1,8 +1,8 @@
 ﻿namespace OsuVideoUploader
 {
-    internal class ModUtils
+    public class ModUtils
     {
-        private delegate void formatAddString(string shortString, string longString = null);
+        private delegate void FormatAddString(string shortString, string longString = null);
 
         public static string Format(Mods mods, bool shortForm = true, bool showEmpty = false, bool addSpace = false)
         {
@@ -11,7 +11,7 @@
 
             string r = string.Empty;
 
-            formatAddString add = delegate (string shortString, string longString)
+            FormatAddString add = delegate (string shortString, string longString)
             {
                 r += (shortForm ? shortString : longString ?? shortString);
             };
@@ -83,7 +83,7 @@
             return r;
         }
 
-        internal static bool CheckActive(Mods haystack, Mods needle)
+        public static bool CheckActive(Mods haystack, Mods needle)
         {
             return (haystack & needle) > 0;
         }

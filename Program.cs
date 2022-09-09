@@ -9,20 +9,29 @@ namespace OsuVideoUploader;
 internal class Program
 {
     public static Config Config;
-    public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CONFIG_FILE);
     public const string CONFIG_FILE = "config.json";
+    public const string TOKEN_FILE = "token.json";
+    public static AccessTokenResponse AccessToken;
+    public static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CONFIG_FILE);
+    public static string TokenPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TOKEN_FILE);
 
     private static ApiV2Client client;
-    private static Dictionary<PlayModes, MapDifficultyRange> approachRateRanges = new();
-    private static Dictionary<PlayModes, MapDifficultyRange> overallDifficultyRanges = new();
+    private static readonly Dictionary<PlayModes, MapDifficultyRange> approachRateRanges = new()
+    {
+        { PlayModes.Osu, new MapDifficultyRange(1800, 1200, 450) }
+    };
+    private static readonly Dictionary<PlayModes, MapDifficultyRange> overallDifficultyRanges = new()
+    {
+        { PlayModes.Osu, new MapDifficultyRange(80, 50, 20) },
+        { PlayModes.Taiko, new MapDifficultyRange(50, 35, 20) }
+    };
 
     public static void Main(string[] args)
     {
-        if (!InitConfig())
+        if (!initConfig())
         {
             WriteError("配置文件不存在，已经创建默认配置");
             pause();
-            return;
         }
 
         File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
@@ -35,7 +44,7 @@ internal class Program
         }
         else
         {
-            foreach (var str in args)
+            foreach (string str in args)
             {
                 file += " " + str;
             }
@@ -50,18 +59,22 @@ internal class Program
         {
             WriteError("回放文件不存在");
             pause();
-            return;
+        }
+        try
+        {
+            client = new ApiV2Client(AccessToken);
+        }
+        catch (Exception e)
+        {
+            WriteError(e);
+            pause();
         }
 
-        approachRateRanges.Add(PlayModes.Osu, new MapDifficultyRange(1800, 1200, 450));
-        overallDifficultyRanges.Add(PlayModes.Osu, new MapDifficultyRange(80, 50, 20));
-        overallDifficultyRanges.Add(PlayModes.Taiko, new MapDifficultyRange(50, 35, 20));
-
-        WriteLine("正在获取 osu! API Access Token");
-        client = new ApiV2Client();
         var score = Score.ReadFromReplay(file);
         var beatmap = client.GetBeatmap(score.BeatmapChecksum);
         PlayModes mode = score.PlayMode;
+        bool doubleTime = ModUtils.CheckActive(score.EnabledMods, Mods.DoubleTime);
+        bool halfTime = ModUtils.CheckActive(score.EnabledMods, Mods.HalfTime);
 
         if (beatmap == null)
         {
@@ -86,19 +99,20 @@ internal class Program
 
             MapDifficultyRange difficultyRange;
 
-            if (ModUtils.CheckActive(score.EnabledMods, Mods.DoubleTime))
+            if (doubleTime)
             {
                 if (approachRateRanges.TryGetValue(mode, out difficultyRange))
                 {
-                    beatmap.ApproachRate = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.ApproachRate) / 0.75f), 2);
+                    beatmap.ApproachRate = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.ApproachRate) / 1.5f), 2);
                 }
 
                 if (overallDifficultyRanges.TryGetValue(mode, out difficultyRange))
                 {
-                    beatmap.OverallDifficulty = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.OverallDifficulty) / 0.75f), 2);
+                    beatmap.OverallDifficulty = MathF.Round(difficultyRange.DifficultyFor((int)difficultyRange.ValueFor(beatmap.OverallDifficulty) / 1.5f), 2);
                 }
             }
-            if (ModUtils.CheckActive(score.EnabledMods, Mods.HalfTime))
+
+            if (halfTime)
             {
                 if (approachRateRanges.TryGetValue(mode, out difficultyRange))
                 {
@@ -117,18 +131,23 @@ internal class Program
         WriteLine();
         WriteLine($"读取分数: {score}");
         WriteLine();
-        var apiMode = toApiMode(mode);
+        string apiMode = toApiMode(mode);
         var user = client.GetUser(score.PlayerName , apiMode);
+        if (user == null)
+        {
+            WriteError("获取用户信息失败");
+        }
 
         string outFileName = Path.GetRandomFileName();
 
         try
         {
-            string videoPath = string.Empty;
-            string coverPath = string.Empty;
+            string videoPath;
+            string coverPath;
             Process p;
 
-            if (mode == PlayModes.Osu)
+            bool runDanser = mode == PlayModes.Osu;
+            if (runDanser)
             {
                 string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
                 string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
@@ -146,7 +165,18 @@ internal class Program
                 string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
                 videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
 
-                danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + 5} -out={outFileName} {Config.DanserArgs}";
+                double offset = 5;
+
+                if (doubleTime)
+                {
+                    offset *= 1.5;
+                }
+                if (halfTime)
+                {
+                    offset *= 0.75;
+                }
+
+                danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + offset} -out={outFileName} {Config.DanserScreenshotArgs}";
                 WriteLine($"运行danser： {danserCommand}");
                 WriteLine();
                 p = Process.Start(new ProcessStartInfo
@@ -154,7 +184,7 @@ internal class Program
                     FileName = danserPath,
                     Arguments = danserCommand,
                 });
-                p.WaitForExit();
+                p?.WaitForExit();
 
                 coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
 
@@ -162,7 +192,6 @@ internal class Program
                 {
                     WriteError("录制视频文件不存在");
                     pause();
-                    return;
                 }
                 if (!File.Exists(coverPath))
                 {
@@ -173,21 +202,11 @@ internal class Program
             }
             else
             {
-                WriteError($"danser不支持回放文件的模式 {mode}，请手动上传");
+                WriteError($"danser不支持该回放文件的模式 {mode}，请手动选择上传视频");
                 Write("输入视频文件路径：");
                 videoPath = ReadLine()?.Trim('"');
                 Write("输入视频封面路径（留空为不传）：");
                 coverPath = ReadLine()?.Trim('"');
-            }
-
-            var stats = user.Statistics;
-            var playTime = TimeSpan.FromSeconds(stats.PlayTime ?? 0);
-            string playTimeText = $"{playTime.Days:N0}d {playTime.Hours}h {playTime.Minutes}m";
-            int prevNameCount = user.PreviousUsernames.Length;
-            string previousUsernames = prevNameCount > 0 ? "曾用名: " : string.Empty;
-            for (int i = 0; i < prevNameCount; i++)
-            {
-                previousUsernames += user.PreviousUsernames[i] + (i == prevNameCount - 1 ? Environment.NewLine : ", ");
             }
 
             string title = score.ToStringDetails();
@@ -202,28 +221,59 @@ internal class Program
                 }
             }
 
-            string desc = $@"//Player info:
-Player: {user}
-Profile: https://osu.ppy.sh/users/{user.Id}
+            string desc = @"// Player info:
+";
+            if (user != null)
+            {
+                var stats = user.Statistics;
+                var playTime = TimeSpan.FromSeconds(stats.PlayTime ?? 0);
+                string playTimeText = $"{playTime.Days:N0}d {playTime.Hours}h {playTime.Minutes}m";
+                int prevNameCount = user.PreviousUsernames.Length;
+                string previousUsernames = prevNameCount > 0 ? "曾用名: " : string.Empty;
+                for (int i = 0; i < prevNameCount; i++)
+                {
+                    previousUsernames += user.PreviousUsernames[i] + (i == prevNameCount - 1 ? Environment.NewLine : ", ");
+                }
+
+                desc += $@"{user}
+Profile: https://osu.ppy.sh/u/{user.Id}
 {previousUsernames}游戏时间: {playTimeText}
 准确率: {stats.Accuracy:F2}%
 游戏次数: {stats.PlayCount:N0}
-
-// Beatmap info: ";
-
-            if (beatmap == null)
-            {
-                desc += "Unknown beatmap";
+";
             }
             else
             {
-                var difficulty = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
-                double star = difficulty?.StarRating ?? beatmap.StarRating;
+                desc += "Unknown player";
+            }
+
+            desc += "// Beatmap info:\n";
+            APIBeatmapDifficultyAttributes difficultyAttributes = null;
+            if (beatmap == null)
+            {
+                desc += "Unknown beatmap\n";
+            }
+            else
+            {
+                difficultyAttributes = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
+                double star = difficultyAttributes?.StarRating ?? beatmap.StarRating;
 
                 desc += $@"{beatmap}
-Beatmap link: https://osu.ppy.sh/b/{beatmap.OnlineID}
-Star: {star:##.##}
-AR: {beatmap.ApproachRate} CS: {beatmap.CircleSize} OD: {beatmap.OverallDifficulty} HP: {beatmap.DrainRate}";
+Link: https://osu.ppy.sh/b/{beatmap.OnlineID}{(beatmap.RulesetID == (int)mode ? string.Empty : $"?mode={apiMode}")}
+                Star: {star:##.##}
+BPM: {beatmap.BPM:##.##}
+AR: {beatmap.ApproachRate:##.##} CS: {beatmap.CircleSize:##.##} OD: {beatmap.OverallDifficulty:##.##} HP: {beatmap.DrainRate:##.##}
+";
+            }
+
+            desc += $@"// Score info:
+Played by {score.PlayerName} on {score.Date.DateTime}
+Accuracy: {score.Accuracy:P2}
+Combo: {score.MaxCombo}x";
+
+            if (difficultyAttributes != null)
+            {
+                desc += $" / {difficultyAttributes.MaxCombo}x";
             }
 
             WriteLine();
@@ -250,11 +300,19 @@ Tag: {Config.VideoTags}
 
             WriteLine(p.StandardOutput.ReadToEnd());
             WriteError(p.StandardError.ReadToEnd());
+            if (Config.RemoveVideo && runDanser)
+            {
+                TryDelete(videoPath);
+            }
+            if (Config.RemoveCover && runDanser)
+            {
+                TryDelete(coverPath);
+            }
             pause();
         }
         catch (Exception e)
         {
-            WriteError(e.ToString());
+            WriteError(e);
             pause();
         }
 
@@ -262,23 +320,52 @@ Tag: {Config.VideoTags}
         {
             WriteLine("按任意键退出");
             ReadKey();
+            Environment.Exit(0);
         }
     }
 
-    private static void WriteError(string msg)
+    public static void WriteError(object obj)
     {
         ConsoleColor color = ForegroundColor;
         ForegroundColor = ConsoleColor.Red;
-        WriteLine(msg);
+        WriteLine(obj);
         ForegroundColor = color;
     }
 
-    private static bool InitConfig()
+    public static void TryDelete(string file)
+    {
+        try
+        {
+            File.Delete(file);
+        }
+        catch (Exception e)
+        {
+            WriteError(e);
+        }
+    }
+
+    private static bool initConfig()
     {
         if (!File.Exists(ConfigPath))
         {
-            WriteDefaultConfig();
+            writeDefaultConfig();
             return false;
+        }
+
+        if (!File.Exists(TokenPath))
+        {
+            AccessToken = ApiV2Client.GetAccessToken();
+            File.WriteAllText(TokenPath, JsonConvert.SerializeObject(AccessToken));
+        }
+        else
+        {
+            AccessToken = JsonConvert.DeserializeObject<AccessTokenResponse>(File.ReadAllText(TokenPath));
+            if (AccessToken != null && AccessToken.Time.Add(TimeSpan.FromSeconds(AccessToken.ExpiresIn)) < DateTimeOffset.UtcNow)
+            {
+                WriteError("Access Token 已失效");
+                AccessToken = ApiV2Client.GetAccessToken();
+                File.WriteAllText(TokenPath, JsonConvert.SerializeObject(AccessToken));
+            }
         }
 
         try
@@ -289,11 +376,11 @@ Tag: {Config.VideoTags}
         catch (Exception e)
         {
             WriteLine(e);
-            WriteDefaultConfig();
+            writeDefaultConfig();
             return false;
         }
 
-        void WriteDefaultConfig()
+        void writeDefaultConfig()
         {
             Config = new Config();
             File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
@@ -333,10 +420,13 @@ Tag: {Config.VideoTags}
 }
 
 [JsonObject]
-class Config
+public class Config
 {
     public string BiliupPath = "biliup";
     public string VideoTags = "osu, 萌新";
     public string DanserPath = string.Empty;
     public string DanserArgs = string.Empty;
+    public string DanserScreenshotArgs = string.Empty;
+    public bool RemoveVideo;
+    public bool RemoveCover;
 }

@@ -66,7 +66,7 @@ namespace OsuVideoUploader
 
         internal int TotalSuccessfulHits
         {
-            get 
+            get
             {
                 switch (PlayMode)
                 {
@@ -155,23 +155,35 @@ namespace OsuVideoUploader
         public string BeatmapChecksum;
         public PlayModes PlayMode;
 
-        public override string ToString() => $"{Beatmap} {ModUtils.Format(EnabledMods, showEmpty: true)} {Accuracy:P}";
+        public override string ToString()
+        {
+            string str = $"{Beatmap} {ModUtils.Format(EnabledMods)} ";
+            if (Accuracy < 1)
+            {
+                str += $"{Accuracy:P2} {Rank}";
+            }
+            else
+            {
+                str += "SS";
+            }
+            return str;
+        }
 
         public string ToStringDetails()
         {
             string str = ToString();
 
-            if (CountMiss == 1)
+            if (Perfect && Rank < ScoreRank.X)
             {
-                str += " 1miss";
+                str += " FC";
             }
             else if (Count100 == 1)
             {
                 str += " 1x100";
             }
-            if (Perfect)
+            else if (CountMiss == 1)
             {
-                str += " FC";
+                str += " 1miss";
             }
 
             return str;

@@ -8,9 +8,9 @@ namespace OsuVideoUploader.API
         private static readonly HttpClient client = new HttpClient();
         private readonly string accessToken;
 
-        public ApiV2Client()
+        public ApiV2Client(AccessTokenResponse token)
         {
-            accessToken = GetAccessToken().AccessToken;
+            accessToken = token.AccessToken;
         }
 
         public static AccessTokenResponse GetAccessToken()
@@ -25,6 +25,7 @@ namespace OsuVideoUploader.API
             };
             var req = new HttpRequestMessage(HttpMethod.Post, "https://osu.ppy.sh/oauth/token");
             req.Content = new FormUrlEncodedContent(data);
+            Console.WriteLine("正在获取Access Token... 在这里卡超过一分钟建议重启本程序");
             var resp = client.Send(req);
 
             if (resp.IsSuccessStatusCode)
