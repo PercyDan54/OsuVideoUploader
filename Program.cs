@@ -36,6 +36,10 @@ internal class Program
 
         File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
         string file = string.Empty;
+
+        bool noUpload = false;
+        bool noRecord = false;
+
         if (args.Length == 0)
         {
             Write("输入回放文件路径：");
@@ -44,9 +48,25 @@ internal class Program
         }
         else
         {
-            foreach (string str in args)
+            foreach (string arg in args)
             {
-                file += " " + str;
+                if (arg.StartsWith("--"))
+                {
+                    switch (arg.Substring(2))
+                    {
+                        case "test":
+                            noUpload = true;
+                            noRecord = true;
+                            break;
+                        case "no-upload":
+                            noUpload = true;
+                            break;
+                    }
+                }
+                else
+                {
+                    file = arg;
+                }
             }
 
             file = file.TrimStart();
@@ -142,74 +162,78 @@ internal class Program
 
         try
         {
-            string videoPath;
-            string coverPath;
+            string videoPath = string.Empty;
+            string coverPath = string.Empty;
             Process p;
 
             bool runDanser = mode == PlayModes.Osu;
-            if (runDanser)
+            if (!noRecord)
             {
-                string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
-                string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
-
-                WriteLine($"运行danser： {danserCommand}");
-                WriteLine();
-
-                p = Process.Start(new ProcessStartInfo
+                if (runDanser)
                 {
-                    FileName = danserPath,
-                    Arguments = danserCommand,
-                });
-                p.WaitForExit();
+                    string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
+                    string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
 
-                string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
-                videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
-
-                double offset = 5;
-
-                if (doubleTime)
-                {
-                    offset *= 1.5;
-                }
-                if (halfTime)
-                {
-                    offset *= 0.75;
-                }
-
-                danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + offset} -out={outFileName} {Config.DanserScreenshotArgs}";
-                WriteLine($"运行danser： {danserCommand}");
-                WriteLine();
-                p = Process.Start(new ProcessStartInfo
-                {
-                    FileName = danserPath,
-                    Arguments = danserCommand,
-                });
-                p?.WaitForExit();
-
-                coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
-
-                if (!File.Exists(videoPath))
-                {
-                    WriteError("录制视频文件不存在");
-                    pause();
-                }
-                if (!File.Exists(coverPath))
-                {
-                    WriteError("截图文件不存在");
+                    WriteLine($"运行danser： {danserCommand}");
                     WriteLine();
-                    coverPath = string.Empty;
+
+                    p = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = danserPath,
+                        Arguments = danserCommand,
+                    });
+                    p.WaitForExit();
+
+                    string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
+                    videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
+
+                    double offset = 5;
+
+                    if (doubleTime)
+                    {
+                        offset *= 1.5;
+                    }
+                    if (halfTime)
+                    {
+                        offset *= 0.75;
+                    }
+
+                    danserCommand = $"-r=\"{file}\" -ss={beatmap?.Length + offset} -out={outFileName} {Config.DanserScreenshotArgs}";
+                    WriteLine($"运行danser： {danserCommand}");
+                    WriteLine();
+                    p = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = danserPath,
+                        Arguments = danserCommand,
+                    });
+                    p?.WaitForExit();
+
+                    coverPath = Path.Combine(danserDir, "screenshots", outFileName + ".png");
+
+                    if (!File.Exists(videoPath))
+                    {
+                        WriteError("录制视频文件不存在");
+                        pause();
+                    }
+                    if (!File.Exists(coverPath))
+                    {
+                        WriteError("截图文件不存在");
+                        WriteLine();
+                        coverPath = string.Empty;
+                    }
                 }
-            }
-            else
-            {
-                WriteError($"danser不支持该回放文件的模式 {mode}，请手动选择上传视频");
-                Write("输入视频文件路径：");
-                videoPath = ReadLine()?.Trim('"');
-                Write("输入视频封面路径（留空为不传）：");
-                coverPath = ReadLine()?.Trim('"');
+                else
+                {
+                    WriteError($"danser不支持该回放文件的模式 {mode}，请手动选择上传视频");
+                    Write("输入视频文件路径：");
+                    videoPath = ReadLine()?.Trim('"');
+                    Write("输入视频封面路径（留空为不传）：");
+                    coverPath = ReadLine()?.Trim('"');
+                }
             }
 
             string title = score.ToStringDetails();
+            string mods = ModUtils.Format(score.EnabledMods, showEmpty: true);
 
             if (title.Length > 80)
             {
@@ -240,11 +264,12 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 {previousUsernames}游戏时间: {playTimeText}
 准确率: {stats.Accuracy:F2}%
 游戏次数: {stats.PlayCount:N0}
+
 ";
             }
             else
             {
-                desc += $"Unknown player: {score.PlayerName}";
+                desc += $"Unknown player: {score.PlayerName}\n";
             }
             desc += "// Beatmap info:\n";
 
@@ -260,15 +285,18 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 desc += $@"{beatmap}
 Link: https://osu.ppy.sh/b/{beatmap.OnlineID}{(beatmap.RulesetID == (int)mode ? string.Empty : $"?mode={apiMode}")}
-Star: {star:##.##}
+Star: {star:##.##} {(score.EnabledMods == Mods.None ? string.Empty : $"({mods})")}
 BPM: {beatmap.BPM:##.##}
 AR: {beatmap.ApproachRate:##.##} CS: {beatmap.CircleSize:##.##} OD: {beatmap.OverallDifficulty:##.##} HP: {beatmap.DrainRate:##.##}
+
 ";
             }
 
             desc += $@"// Score info:
 Played by {score.PlayerName} on {score.Date.DateTime}
+Mods: {mods}
 Accuracy: {score.Accuracy:P2}
+300: {score.Count300}, 100: {score.Count100}, 50: {score.Count50}, Miss: {score.CountMiss}
 Combo: {score.MaxCombo}x";
 
             if (difficultyAttributes != null)
@@ -286,20 +314,23 @@ Combo: {score.MaxCombo}x";
 Tag: {Config.VideoTags}
 ");
 
-            p = Process.Start(new ProcessStartInfo
+            if (!noUpload)
             {
-                FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.BiliupPath),
-                ArgumentList = { "upload" , "--tid=136" , "--title", title, "--tag", Config.VideoTags, "--desc", desc, "--cover", coverPath, videoPath },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                StandardErrorEncoding = Encoding.UTF8,
-                StandardOutputEncoding = Encoding.UTF8,
-            });
-            p.WaitForExit();
+                p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.BiliupPath),
+                    ArgumentList = { "upload" , "--tid=136" , "--title", title, "--tag", Config.VideoTags, "--desc", desc, "--cover", coverPath, videoPath },
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
+                    StandardErrorEncoding = Encoding.UTF8,
+                    StandardOutputEncoding = Encoding.UTF8,
+                });
+                p.WaitForExit();
 
-            WriteLine(p.StandardOutput.ReadToEnd());
-            WriteError(p.StandardError.ReadToEnd());
+                WriteLine(p.StandardOutput.ReadToEnd());
+                WriteError(p.StandardError.ReadToEnd());
+            }
             if (Config.RemoveVideo && runDanser)
             {
                 TryDelete(videoPath);
@@ -334,6 +365,9 @@ Tag: {Config.VideoTags}
 
     public static void TryDelete(string file)
     {
+        if (!File.Exists(file))
+            return;
+
         try
         {
             File.Delete(file);
