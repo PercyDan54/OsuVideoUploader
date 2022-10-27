@@ -166,7 +166,7 @@ namespace OsuVideoUploader
 
             if (Accuracy < 1)
             {
-                str += $" {Accuracy:P2} {Rank}";
+                str += $" {Accuracy:P2}";
             }
             else
             {

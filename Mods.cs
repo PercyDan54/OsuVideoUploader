@@ -6,6 +6,7 @@
         None = 0,
         NoFail = 1 << 0,
         Easy = 1 << 1,
+        TouchDevice = 1 << 2,
         Hidden = 1 << 3,
         HardRock = 1 << 4,
         SuddenDeath = 1 << 5,
@@ -33,5 +34,7 @@
         Key3 = 1 << 27,
         Key2 = 1 << 28,
         ScoreV2 = 1 << 29,
+        KeyMod = Key1 | Key2 | Key3 | Key4 | Key5 | Key6 | Key7 | Key8 | Key9 | KeyCoop,
+        DifficultyAdjustMods =  Easy | HardRock | Hidden | DoubleTime | HalfTime | Flashlight | TouchDevice | KeyMod
     }
 }

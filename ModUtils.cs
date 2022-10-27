@@ -1,6 +1,6 @@
 ﻿namespace OsuVideoUploader
 {
-    public class ModUtils
+    public static class ModUtils
     {
         private delegate void FormatAddString(string shortString, string longString = null);
 
@@ -13,7 +13,7 @@
 
             FormatAddString add = delegate (string shortString, string longString)
             {
-                r += (shortForm ? shortString : longString ?? shortString);
+                r += (shortForm && mods != Mods.ScoreV2 ? shortString : longString ?? shortString);
             };
 
             if (CheckActive(Mods.ScoreV2, mods))
@@ -52,6 +52,8 @@
                 add("SD", "SuddenDeath");
             if (CheckActive(Mods.Flashlight, mods))
                 add("FL", "Flashlight");
+            if (CheckActive(Mods.TouchDevice, mods))
+                add("TD", "TouchDevice");
 
             if (CheckActive(Mods.Key1, mods))
                 add("1K");
@@ -78,14 +80,14 @@
                 add("RD", "Random");
 
             if (r.Length == 0)
-                return "";
+                return string.Empty;
 
             if (addSpace)
                 r += " ";
             return r;
         }
 
-        public static bool CheckActive(Mods haystack, Mods needle)
+        public static bool CheckActive(this Mods haystack, Mods needle)
         {
             return (haystack & needle) > 0;
         }
