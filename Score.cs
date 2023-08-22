@@ -17,7 +17,7 @@ namespace OsuVideoUploader
         public bool Perfect { get; set; }
 
         [JsonProperty(@"created_at")]
-        public DateTimeOffset Date { get; set; }
+        public DateTime Date { get; set; }
 
         internal float Accuracy
         {
@@ -168,10 +168,6 @@ namespace OsuVideoUploader
             {
                 str += $" {Accuracy:P2}";
             }
-            else
-            {
-                str += " SS";
-            }
             return str;
         }
 
@@ -179,9 +175,9 @@ namespace OsuVideoUploader
         {
             string str = ToString();
 
-            if (Perfect && Rank < ScoreRank.X)
+            if (Perfect)
             {
-                str += " FC";
+                str += Rank >= ScoreRank.X ? " SS" : " FC";
             }
             else if (Count100 == 1)
             {

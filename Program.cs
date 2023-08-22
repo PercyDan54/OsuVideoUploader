@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using OsuVideoUploader.API;
 using static System.Console;
@@ -172,6 +173,7 @@ namespace OsuVideoUploader
             {
                 string videoPath = string.Empty;
                 string coverPath = string.Empty;
+                string[] danserLog = { string.Empty };
                 Process p;
 
                 bool runDanser = mode == PlayModes.Osu;
@@ -181,6 +183,7 @@ namespace OsuVideoUploader
                     {
                         string danserCommand = $"-r=\"{file}\" -out={outFileName} {Config.DanserArgs}";
                         string danserPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Config.DanserPath);
+                        string danserLogPath = Path.Combine(Path.GetDirectoryName(danserPath), "danser.log");
 
                         WriteLine($"运行danser： {danserCommand}");
                         WriteLine();
@@ -191,6 +194,10 @@ namespace OsuVideoUploader
                             Arguments = danserCommand
                         });
                         p.WaitForExit();
+                        if (File.Exists(danserLogPath))
+                        {
+                            danserLog = File.ReadAllLines(danserLogPath);
+                        }
 
                         string danserDir = Path.GetFullPath(Config.DanserPath).Replace(Path.GetFileName(Config.DanserPath), string.Empty);
                         videoPath = Path.Combine(danserDir, "videos", outFileName + ".mp4");
@@ -238,7 +245,7 @@ namespace OsuVideoUploader
                     if (beatmap != null)
                     {
                         string diffNameMods = $"[{beatmap.DifficultyName}] {ModUtils.Format(score.EnabledMods)}";
-                        string truncateTitle = truncate(beatmap.BeatmapSet.TitleUnicode, 79 - diffNameMods.Length);
+                        string truncateTitle = truncate(beatmap.BeatmapSet.Title, 79 - diffNameMods.Length);
                         title = $"{truncateTitle} {diffNameMods}";
                     }
                 }
@@ -250,16 +257,10 @@ namespace OsuVideoUploader
                     var stats = user.Statistics;
                     var playTime = TimeSpan.FromSeconds(stats.PlayTime ?? 0);
                     string playTimeText = $"{playTime.Days:N0}d {playTime.Hours}h {playTime.Minutes}m";
-                    int prevNameCount = user.PreviousUsernames.Length;
-                    string previousUsernames = prevNameCount > 0 ? "曾用名: " : string.Empty;
-                    for (int i = 0; i < prevNameCount; i++)
-                    {
-                        previousUsernames += user.PreviousUsernames[i] + (i == prevNameCount - 1 ? Environment.NewLine : ", ");
-                    }
 
                     desc += $@"{user}
 Profile: https://osu.ppy.sh/u/{user.Id}
-{previousUsernames}游戏时间: {playTimeText}
+游戏时间: {playTimeText}
 准确率: {stats.Accuracy:F2}%
 游戏次数: {stats.PlayCount:N0}
 
@@ -272,37 +273,72 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 desc += "// Beatmap info:\n";
 
-                APIBeatmapDifficultyAttributes difficultyAttributes = null;
+                const string date_pattern = @"(^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+";
+                const string common_pattern = date_pattern + "(.+)";
+                const string result_pattern = date_pattern + @"\|\s+(\d{1,2})\s+\|(?:\s+)?([a-zA-Z0-9_ \[\]]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)((?:[A-Z]+)?)(?:\s+)\|\s+(\d+\.\d+)\s+\|";
+
+                string beatmapName = beatmap.ToString();
+                string pp = string.Empty;
+                string maxCombo = string.Empty;
+                double star = -1;
+                foreach (string line in danserLog)
+                {
+                    var matches = Regex.Matches(line, result_pattern);
+                    if (matches.Count == 0)
+                    {
+                        matches = Regex.Matches(line, common_pattern);
+                        if (matches.Count > 0)
+                        {
+                            string log = matches[0].Groups[2].Value;
+                            if (log.StartsWith("Playing"))
+                            {
+                                beatmapName = log.Replace("Playing: ", string.Empty);
+                            }
+                            else if (log.StartsWith("\tTotal") && star < 0)
+                            {
+                                string sr = log.Replace("\tTotal: ", string.Empty);
+                                double.TryParse(sr, out star);
+                            }
+                        }
+                        continue;
+                    }
+
+                    maxCombo = " / " + matches[0].Groups[12].Value + "x";
+                    pp = matches[0].Groups[14].Value;
+                }
+
                 if (beatmap == null)
                 {
-                    desc += "Unknown beatmap\n";
+                    desc += $"Unknown beatmap: {beatmapName}\n";
+                    if (star > 0)
+                    {
+                        desc += $"Star: {star:0.##}\n";
+                    }
                 }
                 else
                 {
-                    difficultyAttributes = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
-                    double star = difficultyAttributes?.StarRating ?? beatmap.StarRating;
+                    var difficultyAttributes = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
+                    star = difficultyAttributes?.StarRating ?? beatmap.StarRating;
+                    if (string.IsNullOrEmpty(maxCombo) && difficultyAttributes != null)
+                    {
+                        maxCombo = " / " +difficultyAttributes.MaxCombo + "x";
+                    }
 
-                    desc += $@"{beatmap}
+                    desc += $@"{beatmapName}
 Link: https://osu.ppy.sh/b/{beatmap.OnlineID}{(beatmap.RulesetID == (int)mode ? string.Empty : $"?mode={apiMode}")}
-Star: {star:##.##} {(score.EnabledMods.CheckActive(Mods.DifficultyAdjustMods) ? $"({mods})" : string.Empty)}
+Star: {star:0.##} {(score.EnabledMods.CheckActive(Mods.DifficultyAdjustMods) ? $"({mods})" : string.Empty)}
 Length: {TimeSpanUtil.FormatTime(TimeSpan.FromSeconds(beatmap.Length))}
-BPM: {beatmap.BPM:##.##}
-AR: {beatmap.ApproachRate:##.##} CS: {beatmap.CircleSize:##.##} OD: {beatmap.OverallDifficulty:##.##} HP: {beatmap.DrainRate:##.##}
+BPM: {beatmap.BPM:0.##}
+AR: {beatmap.ApproachRate:0.##} CS: {beatmap.CircleSize:0.##} OD: {beatmap.OverallDifficulty:0.##} HP: {beatmap.DrainRate:0.##}
 
 ";
                 }
-
                 desc += $@"// Score info:
-Played by {score.PlayerName} on {score.Date.DateTime}
+Played by {score.PlayerName} on {score.Date.ToLocalTime()}{(string.IsNullOrEmpty(pp) ? string.Empty : $"\nPP: {pp}")}
 Mods: {mods}
 Accuracy: {score.Accuracy:P2}
 300: {score.Count300}, 100: {score.Count100}, 50: {score.Count50}, Miss: {score.CountMiss}
-Combo: {score.MaxCombo}x";
-
-                if (difficultyAttributes != null)
-                {
-                    desc += $" / {difficultyAttributes.MaxCombo}x";
-                }
+Combo: {score.MaxCombo}x{maxCombo}";
 
                 WriteLine();
                 WriteLine("运行biliup");
@@ -362,7 +398,7 @@ Tag: {Config.VideoTags}
         {
             var color = ForegroundColor;
             ForegroundColor = ConsoleColor.Red;
-            WriteLine(obj);
+            Error.WriteLine(obj);
             ForegroundColor = color;
         }
 
@@ -433,18 +469,13 @@ Tag: {Config.VideoTags}
                 return str;
             }
 
-            var strMem = str.AsMemory();
+            int prefixLength = length - 3 - str.Split(' ')[^1].Length;
+            int suffixLength = length - 3 - prefixLength;
 
-            do
-            {
-                strMem = strMem[..^1];
-            } while (Encoding.UTF8.GetByteCount(strMem.Span) + 1 > length);
+            string prefix = str.Substring(0, prefixLength);
+            string suffix = str.Substring(str.Length - suffixLength);
 
-            return string.Create(strMem.Length + 1, strMem, (span, mem) =>
-            {
-                mem.Span.CopyTo(span);
-                span[^1] = '…';
-            });
+            return prefix + "..." + suffix;
         }
 
         private static string toApiMode(PlayModes mode)
