@@ -275,7 +275,7 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 const string date_pattern = @"(^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+";
                 const string common_pattern = date_pattern + "(.+)";
-                const string result_pattern = date_pattern + @"\|\s+(\d{1,2})\s+\|(?:\s+)?([a-zA-Z0-9_ \[\]]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)(\d+)(?:\s+)\|(?:\s+)((?:[A-Z]+)?)(?:\s+)\|\s+(\d+\.\d+)\s+\|";
+                const string result_pattern = date_pattern + @"\|\s+(\d{1,2})\s+\|\s+?([A-Za-z0-9-\[\]_ ]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+((?:[A-Z]+)?)\s+\|\s+(\d+\.\d+)\s+\|";
 
                 string beatmapName = beatmap.ToString();
                 string pp = string.Empty;
