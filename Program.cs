@@ -137,6 +137,7 @@ namespace OsuVideoUploader
                     }
 
                     beatmap.BPM *= 1.5;
+                    beatmap.Length /= 1.5;
                 }
 
                 if (halfTime)
@@ -152,6 +153,7 @@ namespace OsuVideoUploader
                     }
 
                     beatmap.BPM *= 0.75;
+                    beatmap.Length /= 0.75;
                 }
 
                 score.Beatmap = beatmap;
@@ -275,41 +277,50 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 const string date_pattern = @"(^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+";
                 const string common_pattern = date_pattern + "(.+)";
-                const string result_pattern = date_pattern + @"\|\s+(\d{1,2})\s+\|\s+?([A-Za-z0-9-\[\]_ ]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+((?:[A-Z]+)?)\s+\|\s+(\d+\.\d+)\s+\|";
+                const string result_pattern = @"\|\s+(\d{1,2})\s+\|\s+?([A-Za-z0-9-\[\]_ ]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+((?:[A-Z]+)?)\s+\|\s+(\d+\.\d+)\s+\|";
 
-                string beatmapName = beatmap.ToString();
+                string beatmapName = beatmap?.ToString();
                 string pp = string.Empty;
                 string maxCombo = string.Empty;
                 double star = -1;
+
                 foreach (string line in danserLog)
                 {
-                    var matches = Regex.Matches(line, result_pattern);
-                    if (matches.Count == 0)
+                    var matches = Regex.Matches(line, common_pattern);
+                    if (matches.Count > 0)
                     {
-                        matches = Regex.Matches(line, common_pattern);
-                        if (matches.Count > 0)
+                        string log = matches[0].Groups[2].Value;
+                        if (log.StartsWith("Playing"))
                         {
-                            string log = matches[0].Groups[2].Value;
-                            if (log.StartsWith("Playing"))
+                            beatmapName = log.Replace("Playing: ", string.Empty);
+                        }
+                        else if (log.StartsWith("\tTotal") && star < 0)
+                        {
+                            string sr = log.Replace("\tTotal: ", string.Empty);
+                            double.TryParse(sr, out star);
+                        }
+                        else
+                        {
+                            matches = Regex.Matches(log, result_pattern);
+                            if (matches.Count > 0)
                             {
-                                beatmapName = log.Replace("Playing: ", string.Empty);
-                            }
-                            else if (log.StartsWith("\tTotal") && star < 0)
-                            {
-                                string sr = log.Replace("\tTotal: ", string.Empty);
-                                double.TryParse(sr, out star);
+                                maxCombo = " / " + matches[0].Groups[11].Value + "x";
+                                pp = matches[0].Groups[13].Value;
                             }
                         }
-                        continue;
                     }
-
-                    maxCombo = " / " + matches[0].Groups[12].Value + "x";
-                    pp = matches[0].Groups[14].Value;
                 }
 
                 if (beatmap == null)
                 {
-                    desc += $"Unknown beatmap: {beatmapName}\n";
+                    desc += "Unknown beatmap";
+
+                    if (!string.IsNullOrEmpty(beatmapName))
+                    {
+                        desc += ": " + beatmapName;
+                    }
+
+                    desc += "\n";
                     if (star > 0)
                     {
                         desc += $"Star: {star:0.##}\n";
@@ -368,14 +379,17 @@ Tag: {Config.VideoTags}
                     WriteError(p.StandardError.ReadToEnd());
                 }
 
-                if (Config.RemoveVideo && runDanser)
+                if (runDanser)
                 {
-                    TryDelete(videoPath);
-                }
+                    if (Config.RemoveCover)
+                    {
+                        TryDelete(coverPath);
+                    }
 
-                if (Config.RemoveCover && runDanser)
-                {
-                    TryDelete(coverPath);
+                    if (Config.RemoveVideo)
+                    {
+                        TryDelete(videoPath);
+                    }
                 }
 
                 pause();
