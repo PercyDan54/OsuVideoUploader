@@ -277,11 +277,12 @@ Profile: https://osu.ppy.sh/u/{user.Id}
 
                 const string date_pattern = @"(^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+";
                 const string common_pattern = date_pattern + "(.+)";
-                const string result_pattern = @"\|\s+(\d{1,2})\s+\|\s+?([A-Za-z0-9-\[\]_ ]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(\d+)\s+\|\s+((?:[A-Z]+)?)\s+\|\s+(\d+\.\d+)\s+\|";
+                const string result_pattern = @"\|\s+(\d{1,2})\s+\|\s+?([A-Za-z0-9-\[\]_ ]+)\W+\|\s+([0-9,]+)\s+\|\s+(\d+\.\d+)\s+\|\s+([A-Z]{1,2})\s+\|\s+([0-9,]+)\s+\|\s+([0-9,]+)\s+\|\s+([0-9,]+)\s+\|\s+([0-9,]+)\s+\|\s+([0-9,]+)\s+\|\s+([0-9,]+)\s+\|\s+((?:[A-Z]+)?)\s+\|\s+(\d+\.\d+)\s+\|";
 
                 string beatmapName = beatmap?.ToString();
                 string pp = string.Empty;
-                string maxCombo = string.Empty;
+                int? maxCombo = null;
+                string maxComboText = string.Empty;
                 double star = -1;
 
                 foreach (string line in danserLog)
@@ -304,7 +305,6 @@ Profile: https://osu.ppy.sh/u/{user.Id}
                             matches = Regex.Matches(log, result_pattern);
                             if (matches.Count > 0)
                             {
-                                maxCombo = " / " + matches[0].Groups[11].Value + "x";
                                 pp = matches[0].Groups[13].Value;
                             }
                         }
@@ -330,10 +330,13 @@ Profile: https://osu.ppy.sh/u/{user.Id}
                 {
                     var difficultyAttributes = client.GetBeatmapAttributes(beatmap.OnlineID, apiMode, (int)score.EnabledMods);
                     star = difficultyAttributes?.StarRating ?? beatmap.StarRating;
-                    if (string.IsNullOrEmpty(maxCombo) && difficultyAttributes != null)
-                    {
-                        maxCombo = " / " +difficultyAttributes.MaxCombo + "x";
-                    }
+                    maxCombo = beatmap.MaxCombo;
+
+                    if (difficultyAttributes != null && difficultyAttributes.MaxCombo > 0)
+                        maxCombo = difficultyAttributes.MaxCombo;
+
+                    if (maxCombo.HasValue)
+                        maxComboText = $" / {maxCombo}x";
 
                     desc += $@"{beatmapName}
 Link: https://osu.ppy.sh/b/{beatmap.OnlineID}{(beatmap.RulesetID == (int)mode ? string.Empty : $"?mode={apiMode}")}
@@ -349,7 +352,7 @@ Played by {score.PlayerName} on {score.Date.ToLocalTime()}{(string.IsNullOrEmpty
 Mods: {mods}
 Accuracy: {score.Accuracy:P2}
 300: {score.Count300}, 100: {score.Count100}, 50: {score.Count50}, Miss: {score.CountMiss}
-Combo: {score.MaxCombo}x{maxCombo}";
+Combo: {score.MaxCombo}x{maxComboText}";
 
                 WriteLine();
                 WriteLine("运行biliup");
